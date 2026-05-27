@@ -4,6 +4,18 @@ variable "aws_region" {
   default     = "ap-northeast-1"
 }
 
+variable "cluster_name" {
+  description = "Prefix name for the resources"
+  type        = string
+  default     = "asterisk-telephony"
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
 variable "instance_type" {
   description = "EC2 instance type for the Asterisk/FreePBX server"
   type        = string
@@ -13,7 +25,13 @@ variable "instance_type" {
 variable "key_name" {
   description = "Name for the auto-generated SSH key pair"
   type        = string
-  default     = "asterisk-generated-key"
+  default     = "asterisk-key-pair"
+}
+
+variable "allowed_http_ingress_cidrs" {
+  description = "List of CIDR blocks allowed to access the HTTP proxy (FreePBX web console, lead-service)"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 variable "ami_username" {

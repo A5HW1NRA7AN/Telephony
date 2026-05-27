@@ -106,7 +106,7 @@ public class HangupLeadIngestService {
         n.put("leadId", idempotencyKey);
         
         // Fields required by the registry endpoint
-        n.put("phNumber", caller == null ? "" : caller);
+        n.put("phone_number", caller == null ? "" : caller);
         n.put("location", "Unknown"); // Default location since PSTN doesn't provide it
         
         // Original fields
