@@ -37,6 +37,7 @@ override.tf.json
 *.key
 .env
 !.env.example
+.state_backups/
 
 # --- OS ---
 .DS_Store
