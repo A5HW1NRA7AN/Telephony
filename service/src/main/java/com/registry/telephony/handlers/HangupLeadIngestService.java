@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class HangupLeadIngestService {
 
     private static final String EVENT_HANGUP = "Hangup";
-    private static final String LEAD_SOURCE = "Asterisk-MissedCall-Campaign";
+    private static final String LEAD_SOURCE = "MissedCall-Campaign";
 
     private final TelephonyProperties telephonyProperties;
     private final CallLeadIngestLogRepository repository;
@@ -32,36 +32,36 @@ public class HangupLeadIngestService {
     private final LeadDispatchService leadDispatchService;
 
     @Transactional
-    public void onAmiMessage(Map<String, String> message) {
-        if (!EVENT_HANGUP.equalsIgnoreCase(message.getOrDefault("Event", ""))) {
+    public void onCallEvent(Map<String, String> eventData) {
+        if (!EVENT_HANGUP.equalsIgnoreCase(eventData.getOrDefault("Event", ""))) {
             return;
         }
-        String context = StringUtils.trimToEmpty(message.get("Context"));
+        String context = StringUtils.trimToEmpty(eventData.get("Context"));
         if (!contextAllowed(context)) {
             return;
         }
 
-        String uniqueid = StringUtils.trimToEmpty(message.get("Uniqueid"));
-        if (uniqueid.isEmpty()) {
-            log.warn("Hangup without Uniqueid; context={}", context);
+        String uniqueId = StringUtils.trimToEmpty(eventData.get("Uniqueid"));
+        if (uniqueId.isEmpty()) {
+            log.warn("Hangup without UniqueId; context={}", context);
             return;
         }
 
-        String linkedid = StringUtils.trimToNull(message.get("Linkedid"));
-        String idempotencyKey = idempotencyKey(uniqueid, linkedid);
+        String linkedId = StringUtils.trimToNull(eventData.get("Linkedid"));
+        String idempotencyKey = idempotencyKey(uniqueId, linkedId);
         if (repository.existsByIdempotencyKey(idempotencyKey)) {
             return;
         }
 
-        JsonNode raw = objectMapper.valueToTree(message);
-        ObjectNode lead = buildLeadPayload(message, idempotencyKey);
+        JsonNode raw = objectMapper.valueToTree(eventData);
+        ObjectNode lead = buildLeadPayload(eventData, idempotencyKey);
 
         CallLeadIngestLog row = new CallLeadIngestLog();
-        row.setAsteriskUniqueId(uniqueid);
-        row.setAsteriskLinkedId(linkedid);
+        row.setCallUniqueId(uniqueId);
+        row.setCallLinkedId(linkedId);
         row.setIdempotencyKey(idempotencyKey);
         row.setProcessingStatus(CallLeadProcessingStatus.RECEIVED);
-        row.setRawAmiSnapshot(raw);
+        row.setRawEventSnapshot(raw);
         row.setNormalizedLeadPayload(lead);
         row.setCreatedAt(Instant.now());
         row.setUpdatedAt(Instant.now());
@@ -92,12 +92,12 @@ public class HangupLeadIngestService {
         return false;
     }
 
-    private ObjectNode buildLeadPayload(Map<String, String> ami, String idempotencyKey) {
-        String caller = firstNonBlank(ami.get("CallerIDNum"), ami.get("ConnectedLineNum"));
-        String called = firstNonBlank(ami.get("Exten"), ami.get("DNID"), ami.get("ConnectedLineNum"));
-        int duration = parseIntSafe(ami.get("BillableSeconds"), 0);
+    private ObjectNode buildLeadPayload(Map<String, String> eventData, String idempotencyKey) {
+        String caller = firstNonBlank(eventData.get("CallerIDNum"), eventData.get("ConnectedLineNum"));
+        String called = firstNonBlank(eventData.get("Exten"), eventData.get("DNID"), eventData.get("ConnectedLineNum"));
+        int duration = parseIntSafe(eventData.get("BillableSeconds"), 0);
         if (duration == 0) {
-            duration = parseIntSafe(ami.get("Duration"), 0);
+            duration = parseIntSafe(eventData.get("Duration"), 0);
         }
 
         Instant startApprox = Instant.now().truncatedTo(ChronoUnit.SECONDS);

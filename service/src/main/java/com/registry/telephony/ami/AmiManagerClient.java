@@ -120,7 +120,7 @@ public class AmiManagerClient {
                     continue;
                 }
                 try {
-                    hangupLeadIngestService.onAmiMessage(msg);
+                    hangupLeadIngestService.onCallEvent(msg);
                 } catch (Exception ex) {
                     log.error("AMI handler failed for event {}", msg.get("Event"), ex);
                 }

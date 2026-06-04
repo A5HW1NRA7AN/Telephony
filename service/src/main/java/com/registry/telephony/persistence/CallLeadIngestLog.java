@@ -28,11 +28,11 @@ public class CallLeadIngestLog {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "asterisk_unique_id", nullable = false, length = 64)
-    private String asteriskUniqueId;
+    @Column(name = "call_unique_id", nullable = false, length = 64)
+    private String callUniqueId;
 
-    @Column(name = "asterisk_linked_id", length = 64)
-    private String asteriskLinkedId;
+    @Column(name = "call_linked_id", length = 64)
+    private String callLinkedId;
 
     @Column(name = "idempotency_key", nullable = false, unique = true, length = 64)
     private String idempotencyKey;
@@ -42,8 +42,8 @@ public class CallLeadIngestLog {
     private CallLeadProcessingStatus processingStatus;
 
     @Type(JsonBinaryType.class)
-    @Column(name = "raw_ami_snapshot", columnDefinition = "jsonb")
-    private JsonNode rawAmiSnapshot;
+    @Column(name = "raw_event_snapshot", columnDefinition = "jsonb")
+    private JsonNode rawEventSnapshot;
 
     @Type(JsonBinaryType.class)
     @Column(name = "normalized_lead_payload", columnDefinition = "jsonb")
