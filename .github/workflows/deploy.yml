@@ -1,0 +1,95 @@
+name: Deploy Telephony Services to AWS
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tag pushes (e.g. v1.0.0-freeswitch or v1.0.0-asterisk)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Determine Branch/Stack
+        id: determine_stack
+        run: |
+          # Parse which stack we are deploying based on tag suffix or fallback
+          if [[ "${{ github.ref_name }}" =~ .*freeswitch.* ]]; then
+            echo "stack=freeswitch" >> $GITHUB_OUTPUT
+            echo "service_dir=service/lead-service" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" =~ .*asterisk.* ]]; then
+            echo "stack=asterisk" >> $GITHUB_OUTPUT
+            echo "service_dir=service" >> $GITHUB_OUTPUT
+          else
+            # Default fallback
+            echo "stack=freeswitch" >> $GITHUB_OUTPUT
+            echo "service_dir=service/lead-service" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # --- Build & Push Lead Service ---
+      - name: Set up JDK 17 (Lead Service)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build Java Lead Service
+        run: |
+          cd ${{ steps.determine_stack.outputs.service_dir }}
+          mvn clean package -DskipTests
+
+      - name: Build and Push ECR Image (Lead Service)
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY_LEAD_SERVICE }}
+          IMAGE_TAG: ${{ github.ref_name }}
+          SERVICE_DIR: ${{ steps.determine_stack.outputs.service_dir }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest ./$SERVICE_DIR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # --- Deployment over SSH ---
+      - name: Setup SSH configuration
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Deploy to EC2 Instance
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          BASTION_IP: ${{ vars.BASTION_IP }}
+          PRIVATE_SERVER_IP: ${{ vars.PRIVATE_SERVER_IP }}
+          STACK_NAME: ${{ steps.determine_stack.outputs.stack }}
+          ECR_REPOSITORY_LEAD_SERVICE: ${{ vars.ECR_REPOSITORY_LEAD_SERVICE }}
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          # 1. Retrieve the ECR login password
+          ECR_PASSWORD=$(aws ecr get-login-password --region ${{ vars.AWS_REGION }})
+          
+          # 2. Log in remote docker to ECR via Bastion tunnel
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -J admin@$BASTION_IP admin@$PRIVATE_SERVER_IP \
+            "echo $ECR_PASSWORD | docker login --username AWS --password-stdin $ECR_REGISTRY"
+            
+          # 3. Copy docker-compose.yml to the remote host
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -o ProxyCommand="ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -W %h:%p admin@$BASTION_IP" \
+            docker-compose.yml admin@$PRIVATE_SERVER_IP:/home/admin/$STACK_NAME/docker-compose.yml
+            
+          # 4. Pull and recreate containers
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -J admin@$BASTION_IP admin@$PRIVATE_SERVER_IP \
+            "cd /home/admin/$STACK_NAME && ECR_REGISTRY=$ECR_REGISTRY ECR_REPOSITORY_LEAD_SERVICE=$ECR_REPOSITORY_LEAD_SERVICE IMAGE_TAG=$IMAGE_TAG docker compose pull lead-service && ECR_REGISTRY=$ECR_REGISTRY ECR_REPOSITORY_LEAD_SERVICE=$ECR_REPOSITORY_LEAD_SERVICE IMAGE_TAG=$IMAGE_TAG docker compose up -d lead-service"
